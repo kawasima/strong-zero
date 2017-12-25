@@ -1,5 +1,7 @@
 # StrongZero
 
+![StrongZero](https://github.com/kawasima/strong-zero/blob/master/doc/img/logo.png?raw=true)
+
 StrongZero is a synchronization tool for microservices.
 
 - Easy setup 
