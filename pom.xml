@@ -4,11 +4,12 @@
 
     <groupId>net.unit8.zero</groupId>
     <artifactId>strong-zero</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
     <packaging>jar</packaging>
 
     <name>strong-zero</name>
     <url>https://github.com/kawasima/strong-zero.git</url>
+    <description>A synchronization tool for microservices.</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -16,6 +17,44 @@
         <maven.compiler.target>1.8</maven.compiler.target>
     </properties>
 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.0.0-M1</version>
+                <executions>
+                    <execution>
+                        <id>enforce-versions</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireMavenVersion>3.0</requireMavenVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>versions-maven-plugin</artifactId>
+                <version>2.5</version>
+            </plugin>
+            <plugin>
+                <groupId>org.sonatype.plugins</groupId>
+                <artifactId>nexus-staging-maven-plugin</artifactId>
+                <version>1.6.8</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <serverId>ossrh</serverId>
+                    <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+                    <autoReleaseAfterClose>true</autoReleaseAfterClose>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
     <dependencies>
         <dependency>
             <groupId>org.zeromq</groupId>
@@ -46,7 +85,7 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>
-            <version>5.0.0</version>
+            <version>5.0.2</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -58,11 +97,11 @@
             <email>kawasima1016@gmail.com</email>
         </developer>
     </developers>
+
     <licenses>
         <license>
-            <name>The Apache Software License, Version 2.0</name>
-            <url>http://www.apache.orglicenses/LICENSE-2.0.txt</url>
-            <distribution>repo</distribution>
+            <name>Eclipse Public License - v 1.0</name>
+            <url>http://www.eclipse.org/org/documents/epl-v10.html</url>
         </license>
     </licenses>
 
@@ -113,17 +152,17 @@
                 <dependency>
                     <groupId>org.flywaydb</groupId>
                     <artifactId>flyway-core</artifactId>
-                    <version>4.2.0</version>
+                    <version>5.0.3</version>
                 </dependency>
                 <dependency>
                     <groupId>com.zaxxer</groupId>
                     <artifactId>HikariCP</artifactId>
-                    <version>2.6.3</version>
+                    <version>2.7.4</version>
                 </dependency>
                 <dependency>
                     <groupId>org.seasar.doma</groupId>
                     <artifactId>doma</artifactId>
-                    <version>2.16.1</version>
+                    <version>2.19.0</version>
                 </dependency>
                 <dependency>
                     <groupId>ch.qos.logback</groupId>
@@ -143,9 +182,57 @@
                 <dependency>
                     <groupId>io.undertow</groupId>
                     <artifactId>undertow-core</artifactId>
-                    <version>1.4.20.Final</version>
+                    <version>1.4.21.Final</version>
                 </dependency>
             </dependencies>
+        </profile>
+
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>2.2.1</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>2.10.4</version>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>1.6</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
 </project>
