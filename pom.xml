@@ -132,6 +132,12 @@
         </dependency>
     </dependencies>
 
+    <scm>
+        <connection>scm:git:https://github.com/kawasima/strong-zero.git</connection>
+        <developerConnection>scm:git:ssh://github.com/kawasima/strong-zero.git</developerConnection>
+        <url>https://github.com/kawasima/strong-zero</url>
+    </scm>
+
     <developers>
         <developer>
             <id>kawasima</id>
