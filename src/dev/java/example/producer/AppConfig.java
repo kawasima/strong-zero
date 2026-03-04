@@ -11,20 +11,27 @@ import org.seasar.doma.jdbc.tx.TransactionManager;
 
 import javax.sql.DataSource;
 
+/** Doma configuration for the producer example using an in-memory H2 database. */
 public class AppConfig implements Config {
     private final LocalTransactionDataSource dataSource;
     private final TransactionManager transactionManager;
     private final HikariDataSource hikariDataSource;
 
+    /** Creates the configuration with a HikariCP-backed data source. */
     public AppConfig() {
         HikariConfig hikariConfig = new HikariConfig();
-        hikariConfig.setJdbcUrl("jdbc:h2:mem:consumer");
+        hikariConfig.setJdbcUrl("jdbc:h2:mem:producer");
         hikariDataSource = new HikariDataSource(hikariConfig);
         dataSource = new LocalTransactionDataSource(hikariDataSource);
         transactionManager = new LocalTransactionManager(
                 dataSource.getLocalTransaction(getJdbcLogger()));
     }
 
+    /**
+     * Returns the raw data source without Doma transaction management.
+     *
+     * @return the underlying HikariCP data source
+     */
     public DataSource getWithoutTxDataSource() {
         return hikariDataSource;
     }

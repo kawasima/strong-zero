@@ -1,35 +1,42 @@
 package net.unit8.zero.producer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
-import net.unit8.zero.ZeroMeterRegistry;
-import org.msgpack.jackson.dataformat.MessagePackFactory;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.zeromq.ZContext;
-import org.zeromq.ZMQ;
-import org.zeromq.ZMsg;
+import org.zeromq.*;
 import org.zeromq.util.ZData;
 
-import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * Routes messages between consumers and pump workers using the ZeroMQ ROUTER pattern.
+ * Acts as a broker in the transactional outbox architecture.
+ */
 public class StrongZeroProducer {
     private static final Logger LOG = LoggerFactory.getLogger(StrongZeroProducer.class);
 
-    private ZContext ctx;
-    private ObjectMapper mapper;
-    private ZMQ.Socket frontend;
-    private ZMQ.Socket backend;
-    private ProducerMetrics producerMetrics = new ProducerMetrics(new ZeroMeterRegistry());
+    private final ZContext ctx;
+    private final ZMQ.Socket frontend;
+    private final ZMQ.Socket backend;
+    private final Deque<byte[]> workerQueue = new ConcurrentLinkedDeque<>();
+    @SuppressWarnings("unused") // Gauge registration happens in constructor as side effect
+    private ProducerMetrics producerMetrics;
 
     private final String frontendAddress;
     private final String backendAddress;
     private final ExecutorService executor;
 
+    /**
+     * Creates a producer that binds to the given frontend and backend addresses.
+     *
+     * @param frontendAddress ZeroMQ address for consumer connections
+     * @param backendAddress  ZeroMQ address for pump worker connections
+     */
     public StrongZeroProducer(String frontendAddress, String backendAddress) {
         this.frontendAddress = frontendAddress;
         this.backendAddress  = backendAddress;
@@ -37,29 +44,28 @@ public class StrongZeroProducer {
         executor = Executors.newFixedThreadPool(2);
 
         ctx = new ZContext();
-        frontend = ctx.createSocket(ZMQ.ROUTER);
-        backend = ctx.createSocket(ZMQ.ROUTER);
+        frontend = ctx.createSocket(SocketType.ROUTER);
+        backend = ctx.createSocket(SocketType.ROUTER);
+        producerMetrics = new ProducerMetrics(new SimpleMeterRegistry(), workerQueue);
     }
 
+    /** Binds sockets and starts the message routing loop. */
     public void start() {
         frontend.bind(frontendAddress);
         frontend.monitor("inproc://frontend.monitor", ZMQ.EVENT_ALL);
-        ZMQ.Socket monitorSocket = ctx.createSocket(ZMQ.PAIR);
+        ZMQ.Socket monitorSocket = ctx.createSocket(SocketType.PAIR);
         monitorSocket.connect("inproc://frontend.monitor");
         executor.submit(() -> {
             while(!Thread.currentThread().isInterrupted()) {
-                ZMQ.Event event = ZMQ.Event.recv(monitorSocket);
+                ZEvent event = ZEvent.recv(monitorSocket);
                 LOG.debug("FRONTEND EVENT={} ADDRESS={} VALUE={}", event.getEvent(), event.getAddress(), event.getValue());
             }
         });
         backend.bind(backendAddress);
 
-        if (mapper == null) mapper = new ObjectMapper(new MessagePackFactory());
-
         ZMQ.Poller items = ctx.createPoller(2);
         items.register(backend, ZMQ.Poller.POLLIN);
         items.register(frontend, ZMQ.Poller.POLLIN);
-        Deque<byte[]> workerQueue = new ArrayDeque<>();
 
         executor.submit(() -> {
             while(!Thread.currentThread().isInterrupted()) {
@@ -73,17 +79,20 @@ public class StrongZeroProducer {
                     byte[] consumerId = msg.pop().getData();
                     if (!Objects.equals(ZData.toString(consumerId), "READY")) {
                         String status = msg.popString();
+                        ZMsg reply = new ZMsg();
+                        reply.add(consumerId);
+                        reply.add("");
                         if (Objects.equals(status, "SUCCESS")) {
                             LOG.info("Worker success");
-                            ZMsg reply = new ZMsg();
-                            reply.add(consumerId);
-                            reply.add("");
                             reply.add("SUCCESS");
                             reply.add(msg.pop().getData());
-                            reply.send(frontend);
                         } else {
-                            LOG.error("Worker error: {}", msg.popString());
+                            String errorMsg = msg.popString();
+                            LOG.error("Worker error: {}", errorMsg);
+                            reply.add("ERROR");
+                            reply.add(errorMsg != null ? errorMsg : "Unknown worker error");
                         }
+                        reply.send(frontend);
                     } else {
                         LOG.info("Worker connected: {}", workerId);
                     }
@@ -117,23 +126,20 @@ public class StrongZeroProducer {
         });
     }
 
+    /** Stops the routing loop, closes sockets and the ZeroMQ context. */
     public void stop() {
-        backend.unbind(backendAddress);
-        frontend.unbind(frontendAddress);
-        executor.shutdown();
-    }
-
-    public void shutdown() {
+        executor.shutdownNow();
         backend.close();
         frontend.close();
-        ctx.destroy();
+        ctx.close();
     }
 
-    public void setObjectMapper(ObjectMapper mapper) {
-        this.mapper = mapper;
-    }
-
+    /**
+     * Sets the meter registry for producer metrics.
+     *
+     * @param registry the meter registry to use
+     */
     public void setProducerMetrics(MeterRegistry registry) {
-        producerMetrics = new ProducerMetrics(registry);
+        producerMetrics = new ProducerMetrics(registry, workerQueue);
     }
 }

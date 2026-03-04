@@ -13,3 +13,5 @@ buildNumber.properties
 
 *.iml
 /.idea
+/.vscode
+.DS_Store

@@ -1,12 +1,13 @@
 package net.unit8.zero.pump;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import net.jodah.failsafe.Failsafe;
-import net.jodah.failsafe.RetryPolicy;
+import dev.failsafe.Failsafe;
+import dev.failsafe.RetryPolicy;
 import net.unit8.zero.ZeroMessage;
 import org.msgpack.jackson.dataformat.MessagePackFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.zeromq.SocketType;
 import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
 import org.zeromq.ZMsg;
@@ -16,19 +17,23 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
+ * Fetches messages from the outbox table and sends them to the producer via ZeroMQ.
+ * Runs as a worker thread in the transactional outbox pipeline.
+ *
  * @author kawasima
  */
-public class StrongZeroPump implements Runnable {
+public class StrongZeroPump implements Runnable, AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(StrongZeroPump.class);
 
     private static final String SELECT_MESSAGES = "SELECT id, type, message FROM produced_zero "
             + " WHERE id > ?"
-            + " ORDER BY id ";
+            + " ORDER BY id"
+            + " LIMIT ?";
 
     private final String backendAddress;
     private final String notificationAddress;
@@ -41,20 +46,27 @@ public class StrongZeroPump implements Runnable {
     private ObjectMapper mapper;
     private int batchSize = 100;
 
-    @SuppressWarnings("unchecked")
-    private RetryPolicy retryPolicy = new RetryPolicy()
-            .abortOn(SQLException.class)
-            .retryIf(msgs -> ((List<ZeroMessage>) msgs).isEmpty())
-            .withMaxRetries(3); // Avoid a infinite loop when consumer is disconnected
+    private final RetryPolicy<List<ZeroMessage>> retryPolicy = RetryPolicy.<List<ZeroMessage>>builder()
+            .handle(SQLException.class)
+            .withDelay(Duration.ofSeconds(1))
+            .withMaxRetries(3)
+            .build();
 
+    /**
+     * Creates a pump worker.
+     *
+     * @param backendAddress      ZeroMQ address of the producer backend
+     * @param notificationAddress ZeroMQ address for update notifications
+     * @param dataSource          data source for reading outbox messages
+     */
     public StrongZeroPump(String backendAddress, String notificationAddress, DataSource dataSource) {
         this.backendAddress = backendAddress;
         this.notificationAddress = notificationAddress;
         this.dataSource = dataSource;
 
         ctx = new ZContext();
-        backend = ctx.createSocket(ZMQ.DEALER);
-        notification = ctx.createSocket(ZMQ.SUB);
+        backend = ctx.createSocket(SocketType.DEALER);
+        notification = ctx.createSocket(SocketType.SUB);
         notification.subscribe(ZMQ.SUBSCRIPTION_ALL);
     }
 
@@ -76,57 +88,82 @@ public class StrongZeroPump implements Runnable {
             String lastId = request.popString();
 
             ZMsg reply = new ZMsg();
-            AtomicLong pollWaitTime = new AtomicLong(10_000);
             reply.add(consumerId);
-            try (Connection connection = dataSource.getConnection();
-                 PreparedStatement stmt = connection.prepareStatement(
-                         SELECT_MESSAGES + " LIMIT " + (batchSize + 1))) {
-                List<ZeroMessage> messages = Failsafe.with(retryPolicy)
-                        .get(() -> {
-                            List<ZeroMessage> res = new ArrayList<>();
-                            stmt.setString(1, lastId);
-                            int cnt = 0;
-                            try (ResultSet rs = stmt.executeQuery()) {
-                                while (cnt < batchSize && rs.next()) {
-                                    ZeroMessage message = new ZeroMessage(
-                                            rs.getString(1),
-                                            rs.getString(2),
-                                            rs.getBytes(3));
-                                    res.add(message);
-                                    cnt++;
-                                }
-                                if (cnt == 0) {
-                                    if (poller.poll(pollWaitTime.get()) != 0) {
-                                        ZMsg.recvMsg(notification, false);
-                                    }
-                                } else if (cnt > 0 && !rs.isAfterLast()) {
-                                    pollWaitTime.set(0);
-                                }
-                                return res;
-                            }
-                        });
+            try {
+                List<ZeroMessage> messages = fetchMessages(lastId);
 
                 byte[] replyBody = mapper.writeValueAsBytes(messages);
                 reply.add("SUCCESS");
                 reply.add(replyBody);
                 LOG.info("fetch: {}", messages);
                 reply.send(backend);
-                if (poller.poll(pollWaitTime.get()) != 0) {
-                    ZMsg.recvMsg(notification, false);
-                    LOG.info("Receive an update notification");
+
+                boolean hasMore = messages.size() >= batchSize;
+                if (!hasMore) {
+                    waitForNotification(poller);
                 }
             } catch (Exception e) {
+                LOG.error("Failed to fetch messages for lastId={}", lastId, e);
                 reply.add("ERROR");
-                reply.add(e.getMessage());
+                reply.add(e.getMessage() != null ? e.getMessage() : "Unknown error");
                 reply.send(backend);
             }
         }
     }
 
+    private List<ZeroMessage> fetchMessages(String lastId) throws Exception {
+        return Failsafe.with(retryPolicy)
+                .get(() -> {
+                    try (Connection connection = dataSource.getConnection();
+                         PreparedStatement stmt = connection.prepareStatement(SELECT_MESSAGES)) {
+                        List<ZeroMessage> res = new ArrayList<>();
+                        stmt.setString(1, lastId);
+                        stmt.setInt(2, batchSize);
+                        try (ResultSet rs = stmt.executeQuery()) {
+                            while (rs.next()) {
+                                res.add(new ZeroMessage(
+                                        rs.getString(1),
+                                        rs.getString(2),
+                                        rs.getBytes(3)));
+                            }
+                        }
+                        return res;
+                    }
+                });
+    }
+
+    private static final long NOTIFICATION_POLL_TIMEOUT_MS = 10_000;
+
+    private void waitForNotification(ZMQ.Poller poller) {
+        if (poller.poll(NOTIFICATION_POLL_TIMEOUT_MS) != 0) {
+            ZMsg.recvMsg(notification, false);
+            LOG.info("Receive an update notification");
+        } else {
+            LOG.debug("Notification poll timed out, will re-query database");
+        }
+    }
+
+    @Override
+    public void close() {
+        if (!ctx.isClosed()) {
+            ctx.close();
+        }
+    }
+
+    /**
+     * Sets the ObjectMapper used for serializing messages.
+     *
+     * @param mapper the object mapper to use
+     */
     public void setObjectMapper(ObjectMapper mapper) {
         this.mapper = mapper;
     }
 
+    /**
+     * Sets the maximum number of messages to fetch per batch.
+     *
+     * @param batchSize the batch size
+     */
     public void setBatchSize(int batchSize) {
         this.batchSize = batchSize;
     }

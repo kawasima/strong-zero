@@ -7,14 +7,28 @@ import org.msgpack.jackson.dataformat.MessagePackFactory;
 
 import javax.sql.DataSource;
 
+/** Example consumer application that replicates User entities as Member entities. */
 public class ExampleConsumer {
+    /** Creates a new ExampleConsumer instance. */
+    public ExampleConsumer() {}
+
+    /** Runs Flyway migrations for the consumer database.
+     *
+     * @param dataSource the data source to migrate
+     */
     public static void migrate(DataSource dataSource) {
-        Flyway flyway = new Flyway();
-        flyway.setLocations("classpath:db/migration/consumer");
-        flyway.setDataSource(dataSource);
-        flyway.migrate();
+        Flyway.configure()
+                .locations("classpath:db/migration/consumer")
+                .dataSource(dataSource)
+                .load()
+                .migrate();
     }
 
+    /**
+     * Entry point for the example consumer.
+     *
+     * @param args command-line arguments (unused)
+     */
     public static void main(String[] args) {
         final AppConfig appConfig = new AppConfig();
         appConfig.getTransactionManager().required(() -> migrate(appConfig.getDataSource()));
@@ -26,13 +40,12 @@ public class ExampleConsumer {
         strongZeroConsumer.setObjectMapper(mapper);
 
         MemberDao memberDao = new MemberDaoImpl(appConfig);
-        strongZeroConsumer.resisterHandler("USER", (id, msg) -> {
+        strongZeroConsumer.registerHandler("USER", (id, msg) -> {
             Member user = mapper.readValue(msg, Member.class);
             appConfig.getTransactionManager().required(() -> {
                 if (memberDao.update(user) == 0) {
                     memberDao.insert(user);
                 }
-                strongZeroConsumer.consumed(id);
             });
         });
 

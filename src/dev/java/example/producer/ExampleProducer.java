@@ -14,6 +14,7 @@ import javax.sql.DataSource;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/** Example producer application that publishes User entities via an HTTP endpoint. */
 public class ExampleProducer {
     private Undertow undertow;
     private AppConfig appConfig;
@@ -37,12 +38,12 @@ public class ExampleProducer {
                 userDao.insert(user);
                 sender.send("USER", user);
             });
-            sender.updated();
 
             exchange.getResponseSender().send("OK");
         }
     };
 
+    /** Initializes the producer, pump workers, and HTTP server. */
     public ExampleProducer() {
         ExecutorService workerThreadPool = Executors.newFixedThreadPool(2);
 
@@ -55,7 +56,6 @@ public class ExampleProducer {
         String notificationAddress = "ipc://notification";
         ObjectMapper mapper = new ObjectMapper(new MessagePackFactory());
         StrongZeroProducer producer = new StrongZeroProducer(frontendAddress, backendAddress);
-        producer.setObjectMapper(mapper);
         producer.start();
 
         workerThreadPool.submit(new StrongZeroPump(backendAddress, notificationAddress, appConfig.getWithoutTxDataSource()));
@@ -69,13 +69,24 @@ public class ExampleProducer {
         sender = new StrongZeroSender(notificationAddress, appConfig.getDataSource(), mapper);
     }
 
+    /**
+     * Runs Flyway migrations for the producer database.
+     *
+     * @param dataSource the data source to migrate
+     */
     public void migrate(DataSource dataSource) {
-        Flyway flyway = new Flyway();
-        flyway.setLocations("classpath:db/migration/producer");
-        flyway.setDataSource(dataSource);
-        flyway.migrate();
+        Flyway.configure()
+                .locations("classpath:db/migration/producer")
+                .dataSource(dataSource)
+                .load()
+                .migrate();
     }
 
+    /**
+     * Entry point for the example producer.
+     *
+     * @param args command-line arguments (unused)
+     */
     public static void main(String[] args) {
         new ExampleProducer();
     }

@@ -4,110 +4,119 @@ import java.io.UncheckedIOException;
 import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.time.Clock;
-import java.util.Collections;
-import java.util.Enumeration;
+import java.util.HexFormat;
+import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Supplier;
 
+/**
+ * Thread-safe unique ID generator based on timestamp, MAC address, and sequence number.
+ * Generates 128-bit (32 hex character) identifiers that are time-ordered and unique across hosts.
+ *
+ * <p>ID layout (16 bytes):
+ * <ul>
+ *   <li>Bytes 0-7: timestamp in milliseconds (big-endian)</li>
+ *   <li>Bytes 8-13: MAC address</li>
+ *   <li>Bytes 14-15: sequence number within the same millisecond</li>
+ * </ul>
+ */
 public class Flake {
-    private Clock clock;
+    private static final int MAX_SEQUENCE = 0xFFFF;
+    private static final HexFormat HEX = HexFormat.of();
+
+    private final Clock clock;
+    private final byte[] macAddress;
+    private final ReentrantLock lock = new ReentrantLock();
+
     private int sequence;
     private long lastTime;
-    private byte[] macAddress;
 
-    private ReentrantLock lock = new ReentrantLock();
-    private static final char[] HEX = new char[]{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
-
+    /** Creates a Flake using the system UTC clock. */
     public Flake() {
         this(Clock.systemUTC());
     }
 
+    /**
+     * Creates a Flake with the given clock.
+     *
+     * @param clock the clock to use for timestamp generation
+     */
     public Flake(Clock clock) {
         this.clock = clock;
-        sequence = 0;
-        lastTime = clock.millis();
-        macAddress = getMacAddress();
+        this.sequence = 0;
+        this.lastTime = clock.millis();
+        this.macAddress = getMacAddress();
     }
 
     private byte[] getMacAddress() {
-        //noinspection unchecked
-        Enumeration<NetworkInterface> interfaces = (Enumeration<NetworkInterface>) ((Supplier<Object>) () -> {
-            try {
-                return NetworkInterface.getNetworkInterfaces();
-            } catch (SocketException e) {
-                throw new UncheckedIOException(e);
-            }
-        }).get();
-        return Collections.list(interfaces)
-                .stream()
-                .filter(ni -> {
-                    try {
-                        return !ni.isLoopback() && ni.isUp();
-                    } catch (SocketException e) {
-                        throw new UncheckedIOException(e);
-                    }
-                })
-                .map(ni -> {
-                    try {
-                        return ni.getHardwareAddress();
-                    } catch (SocketException e) {
-                        throw new UncheckedIOException(e);
-                    }
-                })
-                .findAny()
-                .orElseThrow(IllegalStateException::new);
+        try {
+            return NetworkInterface.networkInterfaces()
+                    .filter(ni -> {
+                        try {
+                            return !ni.isLoopback() && ni.isUp();
+                        } catch (SocketException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    })
+                    .map(ni -> {
+                        try {
+                            return ni.getHardwareAddress();
+                        } catch (SocketException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("No network interface with hardware address found"));
+        } catch (SocketException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
+    /**
+     * Generates a unique 32-character hex ID.
+     *
+     * @return the generated identifier
+     */
     public String generateId() {
         byte[] content = new byte[16];
-        long current = clock.millis();
+        long time;
+        int seq;
 
         lock.lock();
         try {
+            long current = clock.millis();
             if (current != lastTime) {
                 lastTime = current;
                 sequence = 0;
             } else {
-                sequence++;
+                if (sequence >= MAX_SEQUENCE) {
+                    while (clock.millis() == lastTime) {
+                        Thread.onSpinWait();
+                    }
+                    lastTime = clock.millis();
+                    sequence = 0;
+                } else {
+                    sequence++;
+                }
             }
+            time = lastTime;
+            seq = sequence;
         } finally {
             lock.unlock();
         }
-        content[0] = (byte)((int) (lastTime >> 56));
-        content[1] = (byte)((int) (lastTime >> 48));
-        content[2] = (byte)((int) (lastTime >> 40));
-        content[3] = (byte)((int) (lastTime >> 32));
-        content[4] = (byte)((int) (lastTime >> 24));
-        content[5] = (byte)((int) (lastTime >> 16));
-        content[6] = (byte)((int) (lastTime >> 8));
-        content[7] = (byte)((int) (lastTime));
-        content[8] = macAddress[0];
-        content[9] = macAddress[1];
-        content[10] = macAddress[2];
-        content[11] = macAddress[3];
-        content[12] = macAddress[4];
-        content[13] = macAddress[5];
-        content[14] = (byte) (sequence >> 8);
-        content[15] = (byte) sequence;
 
-        char[] id = new char[]{
-                HEX[(content[0] & 240) >> 4], HEX[content[0] & 15],
-                HEX[(content[1] & 240) >> 4], HEX[content[1] & 15],
-                HEX[(content[2] & 240) >> 4], HEX[content[2] & 15],
-                HEX[(content[3] & 240) >> 4], HEX[content[3] & 15],
-                HEX[(content[4] & 240) >> 4], HEX[content[4] & 15],
-                HEX[(content[5] & 240) >> 4], HEX[content[5] & 15],
-                HEX[(content[6] & 240) >> 4], HEX[content[6] & 15],
-                HEX[(content[7] & 240) >> 4], HEX[content[7] & 15],
-                HEX[(content[8] & 240) >> 4], HEX[content[8] & 15],
-                HEX[(content[9] & 240) >> 4], HEX[content[9] & 15],
-                HEX[(content[10] & 240) >> 4], HEX[content[10] & 15],
-                HEX[(content[11] & 240) >> 4], HEX[content[11] & 15],
-                HEX[(content[12] & 240) >> 4], HEX[content[12] & 15],
-                HEX[(content[13] & 240) >> 4], HEX[content[13] & 15],
-                HEX[(content[14] & 240) >> 4], HEX[content[14] & 15],
-                HEX[(content[15] & 240) >> 4], HEX[content[15] & 15]
-        };
-        return new String(id);
+        content[0] = (byte) (time >> 56);
+        content[1] = (byte) (time >> 48);
+        content[2] = (byte) (time >> 40);
+        content[3] = (byte) (time >> 32);
+        content[4] = (byte) (time >> 24);
+        content[5] = (byte) (time >> 16);
+        content[6] = (byte) (time >> 8);
+        content[7] = (byte) time;
+        System.arraycopy(macAddress, 0, content, 8, 6);
+        content[14] = (byte) (seq >> 8);
+        content[15] = (byte) seq;
+
+        return HEX.formatHex(content);
     }
 }

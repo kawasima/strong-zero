@@ -11,10 +11,12 @@ import org.seasar.doma.jdbc.tx.TransactionManager;
 
 import javax.sql.DataSource;
 
+/** Doma configuration for the consumer example using an in-memory H2 database. */
 public class AppConfig implements Config {
     private final LocalTransactionDataSource dataSource;
     private final TransactionManager transactionManager;
 
+    /** Creates the configuration with a HikariCP-backed data source. */
     public AppConfig() {
         HikariConfig hikariConfig = new HikariConfig();
         hikariConfig.setJdbcUrl("jdbc:h2:mem:consumer");
