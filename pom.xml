@@ -15,6 +15,21 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
+
+        <jeromq.version>0.6.0</jeromq.version>
+        <jackson-dataformat-msgpack.version>0.9.11</jackson-dataformat-msgpack.version>
+        <failsafe.version>3.3.2</failsafe.version>
+        <lombok.version>1.18.42</lombok.version>
+        <slf4j.version>2.0.17</slf4j.version>
+        <micrometer.version>1.16.3</micrometer.version>
+        <junit-jupiter.version>5.14.2</junit-jupiter.version>
+        <h2.version>2.4.240</h2.version>
+
+        <doma.version>2.62.1</doma.version>
+        <flyway.version>12.0.3</flyway.version>
+        <hikaricp.version>6.3.0</hikaricp.version>
+        <logback.version>1.5.32</logback.version>
+        <undertow.version>2.3.23.Final</undertow.version>
     </properties>
 
     <build>
@@ -64,7 +79,7 @@
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
-                            <version>1.18.42</version>
+                            <version>${lombok.version}</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
@@ -75,39 +90,44 @@
         <dependency>
             <groupId>org.zeromq</groupId>
             <artifactId>jeromq</artifactId>
-            <version>0.6.0</version>
+            <version>${jeromq.version}</version>
         </dependency>
         <dependency>
             <groupId>org.msgpack</groupId>
             <artifactId>jackson-dataformat-msgpack</artifactId>
-            <version>0.9.11</version>
+            <version>${jackson-dataformat-msgpack.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.failsafe</groupId>
             <artifactId>failsafe</artifactId>
-            <version>3.3.2</version>
+            <version>${failsafe.version}</version>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.18.42</version>
+            <version>${lombok.version}</version>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
         </dependency>
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
-            <version>1.16.3</version>
+            <version>${micrometer.version}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>
-            <version>5.14.2</version>
+            <version>${junit-jupiter.version}</version>
             <scope>test</scope>
         </dependency>
 <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <version>2.4.240</version>
+            <version>${h2.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -178,12 +198,12 @@
                                 <path>
                                     <groupId>org.projectlombok</groupId>
                                     <artifactId>lombok</artifactId>
-                                    <version>1.18.42</version>
+                                    <version>${lombok.version}</version>
                                 </path>
                                 <path>
                                     <groupId>org.seasar.doma</groupId>
                                     <artifactId>doma-processor</artifactId>
-                                    <version>2.62.1</version>
+                                    <version>${doma.version}</version>
                                 </path>
                             </annotationProcessorPaths>
                         </configuration>
@@ -194,37 +214,37 @@
                 <dependency>
                     <groupId>org.flywaydb</groupId>
                     <artifactId>flyway-core</artifactId>
-                    <version>12.0.3</version>
+                    <version>${flyway.version}</version>
                 </dependency>
                 <dependency>
                     <groupId>com.zaxxer</groupId>
                     <artifactId>HikariCP</artifactId>
-                    <version>6.3.0</version>
+                    <version>${hikaricp.version}</version>
                 </dependency>
                 <dependency>
                     <groupId>org.seasar.doma</groupId>
                     <artifactId>doma-core</artifactId>
-                    <version>2.62.1</version>
+                    <version>${doma.version}</version>
                 </dependency>
                 <dependency>
                     <groupId>ch.qos.logback</groupId>
                     <artifactId>logback-classic</artifactId>
-                    <version>1.5.32</version>
+                    <version>${logback.version}</version>
                 </dependency>
                 <dependency>
                     <groupId>com.h2database</groupId>
                     <artifactId>h2</artifactId>
-                    <version>2.4.240</version>
+                    <version>${h2.version}</version>
                 </dependency>
                 <dependency>
                     <groupId>io.micrometer</groupId>
                     <artifactId>micrometer-registry-atlas</artifactId>
-                    <version>1.16.3</version>
+                    <version>${micrometer.version}</version>
                 </dependency>
                 <dependency>
                     <groupId>io.undertow</groupId>
                     <artifactId>undertow-core</artifactId>
-                    <version>2.3.23.Final</version>
+                    <version>${undertow.version}</version>
                 </dependency>
             </dependencies>
         </profile>
